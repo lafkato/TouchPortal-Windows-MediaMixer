@@ -44,7 +44,8 @@ g_log = getLogger()
 audio_ignore_list = []
 volumeprocess = ["Master Volume", "Current app"]
 running = False
-pythoncom.CoInitialize()
+last_active_window_handle = None
+last_active_executable = ""
 
 dataMapper = {
             "Output": EDataFlow.eRender.value,
@@ -194,12 +195,24 @@ def updateDevice(options, choiceId, instanceId=None):
 
 
 def getActiveExecutablePath():
+    global last_active_window_handle, last_active_executable
+
     hWnd = windll.user32.GetForegroundWindow()
     if hWnd == 0:
-        return None # Note that this function doesn't use GetLastError().
-    else:
+        return ""
+
+    if hWnd == last_active_window_handle and last_active_executable:
+        return last_active_executable
+
+    try:
         _, pid = win32process.GetWindowThreadProcessId(hWnd)
-        return psutil.Process(pid).exe()
+        last_active_executable = psutil.Process(pid).exe()
+        last_active_window_handle = hWnd
+        return last_active_executable
+    except Exception:
+        last_active_window_handle = None
+        last_active_executable = ""
+        return ""
 
 import comtypes
 
@@ -246,49 +259,86 @@ def getDevicebydata(edata, erole):
         
 
 def stateUpdate():
-    updateSwitch = 1
-    while running:
-        sleep(0.5)
-        TPClient.stateUpdate(TP_PLUGIN_STATES['FocusedAPP']['id'], pygetwindow.getActiveWindowTitle())
+    pythoncom.CoInitialize()
+    try:
+        update_switch = 1
+        previous_states = {
+            'focused_app': None,
+            'master_volume': None,
+            'current_app_volume': None,
+            'outputDevice': None,
+            'outputcommicationDevice': None,
+            'inputDevice': None,
+            'inputDeviceCommication': None
+        }
 
-        # Update master volume
-        master_volume = getMasterVolume()
-        master_volume_connector_id = f"pc_{TP_PLUGIN_INFO['id']}_{TP_PLUGIN_CONNECTORS['APP control']['id']}|{TP_PLUGIN_CONNECTORS['APP control']['data']['appchoice']['id']}=Master Volume"
-        if master_volume_connector_id in TPClient.shortIdTracker:
-            TPClient.shortIdUpdate(
-                    TPClient.shortIdTracker[master_volume_connector_id],
-                    master_volume)
-        
-        TPClient.stateUpdate(TP_PLUGIN_STATES["master volume"]["id"], str(master_volume))
+        while running:
+            sleep(1.0)
 
-        activeWindow = getActiveExecutablePath()
-        current_app_connector_id = f"pc_{TP_PLUGIN_INFO['id']}_{TP_PLUGIN_CONNECTORS['APP control']['id']}|{TP_PLUGIN_CONNECTORS['APP control']['data']['appchoice']['id']}=Current app"
-        if activeWindow != "" and activeWindow != None and (current_app_volume := AudioController(os.path.basename(activeWindow)).process_volume()):
-            if current_app_connector_id in TPClient.shortIdTracker:
+            try:
+                focused_app = pygetwindow.getActiveWindowTitle() or ""
+            except Exception:
+                focused_app = ""
+
+            if focused_app != previous_states['focused_app']:
+                TPClient.stateUpdate(TP_PLUGIN_STATES['FocusedAPP']['id'], focused_app)
+                previous_states['focused_app'] = focused_app
+
+            master_volume = getMasterVolume()
+            master_volume_connector_id = f"pc_{TP_PLUGIN_INFO['id']}_{TP_PLUGIN_CONNECTORS['APP control']['id']}|{TP_PLUGIN_CONNECTORS['APP control']['data']['appchoice']['id']}=Master Volume"
+            if master_volume_connector_id in TPClient.shortIdTracker:
                 TPClient.shortIdUpdate(
-                    TPClient.shortIdTracker[current_app_connector_id],
-                    int(current_app_volume*100))
-            TPClient.stateUpdate(TP_PLUGIN_STATES['currentAppVolume']['id'], str(int(current_app_volume*100)))
-        else:
-            if current_app_connector_id in TPClient.shortIdTracker:
-                TPClient.shortIdUpdate(
-                    TPClient.shortIdTracker[current_app_connector_id],
-                    0)
-            TPClient.stateUpdate(TP_PLUGIN_STATES['currentAppVolume']['id'], 0)
+                        TPClient.shortIdTracker[master_volume_connector_id],
+                        master_volume)
 
-        if (updateSwitch == 1):
-            TPClient.stateUpdate(TP_PLUGIN_STATES["outputDevice"]["id"], getDevicebydata(EDataFlow.eRender.value, ERole.eMultimedia.value))
-            updateSwitch = 2
-        elif (updateSwitch == 2):
-            TPClient.stateUpdate(TP_PLUGIN_STATES["outputcommicationDevice"]["id"], getDevicebydata(EDataFlow.eRender.value, ERole.eCommunications.value))
-            updateSwitch = 3
-        elif (updateSwitch == 3):
-            TPClient.stateUpdate(TP_PLUGIN_STATES["inputDevice"]["id"], getDevicebydata(EDataFlow.eCapture.value, ERole.eMultimedia.value))
-            updateSwitch = 4
-        elif (updateSwitch == 4):
-            TPClient.stateUpdate(TP_PLUGIN_STATES["inputDeviceCommication"]["id"], getDevicebydata(EDataFlow.eCapture.value, ERole.eCommunications.value))
-            updateSwitch = 1
+            if master_volume != previous_states['master_volume']:
+                TPClient.stateUpdate(TP_PLUGIN_STATES['master volume']['id'], str(master_volume))
+                previous_states['master_volume'] = master_volume
+
+            active_window = getActiveExecutablePath()
+            current_app_connector_id = f"pc_{TP_PLUGIN_INFO['id']}_{TP_PLUGIN_CONNECTORS['APP control']['id']}|{TP_PLUGIN_CONNECTORS['APP control']['data']['appchoice']['id']}=Current app"
+            current_app_volume = 0
+            if active_window and (volume := AudioController(os.path.basename(active_window)).process_volume()) is not None:
+                current_app_volume = int(volume * 100)
+                if current_app_connector_id in TPClient.shortIdTracker:
+                    TPClient.shortIdUpdate(
+                        TPClient.shortIdTracker[current_app_connector_id],
+                        current_app_volume)
+
+            if current_app_volume != previous_states['current_app_volume']:
+                TPClient.stateUpdate(TP_PLUGIN_STATES['currentAppVolume']['id'], str(current_app_volume))
+                previous_states['current_app_volume'] = current_app_volume
+
+            if update_switch == 1:
+                output_device = getDevicebydata(EDataFlow.eRender.value, ERole.eMultimedia.value)
+                if output_device != previous_states['outputDevice']:
+                    TPClient.stateUpdate(TP_PLUGIN_STATES['outputDevice']['id'], output_device)
+                    previous_states['outputDevice'] = output_device
+                update_switch = 2
+            elif update_switch == 2:
+                output_comm_device = getDevicebydata(EDataFlow.eRender.value, ERole.eCommunications.value)
+                if output_comm_device != previous_states['outputcommicationDevice']:
+                    TPClient.stateUpdate(TP_PLUGIN_STATES['outputcommicationDevice']['id'], output_comm_device)
+                    previous_states['outputcommicationDevice'] = output_comm_device
+                update_switch = 3
+            elif update_switch == 3:
+                input_device = getDevicebydata(EDataFlow.eCapture.value, ERole.eMultimedia.value)
+                if input_device != previous_states['inputDevice']:
+                    TPClient.stateUpdate(TP_PLUGIN_STATES['inputDevice']['id'], input_device)
+                    previous_states['inputDevice'] = input_device
+                update_switch = 4
+            elif update_switch == 4:
+                input_comm_device = getDevicebydata(EDataFlow.eCapture.value, ERole.eCommunications.value)
+                if input_comm_device != previous_states['inputDeviceCommication']:
+                    TPClient.stateUpdate(TP_PLUGIN_STATES['inputDeviceCommication']['id'], input_comm_device)
+                    previous_states['inputDeviceCommication'] = input_comm_device
+                update_switch = 1
+
+            pythoncom.PumpWaitingMessages()
         
+    except Exception as exc:
+        g_log.error(f"stateUpdate thread error: {exc}", exc_info=True)
+    finally:
         pythoncom.CoUninitialize()
 
 def handleSettings(settings, on_connect=False):
@@ -313,14 +363,16 @@ def onConnect(data):
     run_callback()
     #g_log.debug(f"--------- Magic already in session!! ---------\n------{err}------")
     
-    Thread(target=stateUpdate).start()
+    Thread(target=stateUpdate, daemon=True).start()
 
 def run_callback():
     pythoncom.CoInitialize()
     try:
         MagicManager.magic_session(WinAudioCallBack)
     except Exception as e:
-        g_log.info(e, exc_info=True)
+        g_log.error(f"Magic session initialization failed: {e}", exc_info=True)
+    finally:
+        pythoncom.CoUninitialize()
 
 
 # Settings handler
@@ -495,18 +547,20 @@ def onListChange(data):
     #         g_log.warning("Update device setDeviceVolume error " + str(e))
 
 
-# Shutdown handler
+# Error handler
+@TPClient.on(TP.TYPES.onError)
+def onError(exc):
+    g_log.error(f'Error in TP Client event handler: {repr(exc)}', exc_info=True)
+
 @TPClient.on(TP.TYPES.onShutdown)
 def onShutdown(data):
+    global running
     g_log.info('Received shutdown event from TP Client.')
+    running = False
 
-# Error handler
-# @TPClient.on(TP.TYPES.onError)
-# def onError(exc):
-#     g_log.error(f'Error in TP Client event handler: {repr(exc)}')
 
 def main():
-    global TPClient, g_log
+    global TPClient, g_log, running
 
     # Handle CLI arguments
     parser = ArgumentParser()
@@ -571,7 +625,8 @@ def main():
         g_log.error(f"Exception in TP Client:\n{format_exc()}")
         ret = -1
     finally:
-        # Make sure TP Client is stopped, this will do nothing if it is already disconnected.
+        # Make sure the state thread stops and TP Client is stopped.
+        running = False
         TPClient.disconnect()
 
     # TP disconnected, clean up.
