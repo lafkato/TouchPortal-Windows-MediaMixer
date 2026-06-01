@@ -38,10 +38,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Find generated TPP
+        id: find_tpp
+        run: |
+          $tpp = Get-ChildItem -Path "src" -Filter "*.tpp" | Select-Object -First 1
+          if (-not $tpp) { throw 'No TPP file found in src directory' }
+          echo "tpp_path=$($tpp.FullName)" >> $GITHUB_OUTPUT
+          echo "tpp_name=$($tpp.Name)" >> $GITHUB_OUTPUT
+
       - name: Upload release asset
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: src/TPAudioMixer_v${{ github.ref_name }}_Windows.tpp
-          asset_name: TPAudioMixer_v${{ github.ref_name }}_Windows.tpp
+          asset_path: ${{ steps.find_tpp.outputs.tpp_path }}
+          asset_name: ${{ steps.find_tpp.outputs.tpp_name }}
           asset_content_type: application/octet-stream
