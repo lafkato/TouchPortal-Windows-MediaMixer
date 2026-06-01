@@ -13,71 +13,39 @@ a TouchPortal plugin that allows you to control Window's default audio mixer.
 
 # Change Log
 ```
+v1.5.5 - CI compatibility fix (2026-06-01)
+    CI / Packaging:
+        - Pinned `pyee<12` in `requirements.txt` to ensure `TouchPortalAPI` imports `ExecutorEventEmitter` during GitHub Actions runs.
+
+v1.5.4 - Release workflow: upload asset fix (2026-06-01)
+    CI / Release:
+        - Fixed GitHub Actions workflow to dynamically locate the generated `.tpp` and upload it as the release asset.
+        - Added workflow permissions so the action can create releases.
+
+v1.5.3 - Add GitHub Actions release automation (2026-06-01)
+    CI:
+        - Added `.github/workflows/release.yml` to build the plugin on tag push and create a GitHub Release with the built `.tpp`.
+
+v1.5.2 - Build & runtime stability fixes (2026-06-01)
+    Bug Fixes / Improvements:
+        - Stabilized COM usage and threading in `TPAudioMixer.py` to prevent high CPU and plugin hangs.
+        - Converted state updater thread to a daemon and reduced polling frequency to lower CPU usage.
+        - Added robust COM init/uninit handling in `audioUtil/audioController.py` to prevent COM leaks and crashes.
+        - Added error logging (`onError`) and clean shutdown handling (`onShutdown`).
+        - Cached active window lookup to avoid redundant process queries.
+
 v1.5.1 - Fixed listId not updating correctly
     Bug Fixes:
-        - Fixed listId not updating correctly
-        - Changed from "Change device volume" to "Set device volume" to make it more clear.
+        - Fixed `listId` not updating for certain actions.
 
 v1.5.0 - Fixed id and added ability to change audio volume
-    new:
-        - Added a new action allows user to change their mic or speaker volume
-        - Fixed current app volume id is "text" changed to proper id format
+    Features:
+        - Added action to change mic/speaker volume.
 
-v1.4.0 - get current focused app volume
-    New:
-        - Added get current focused app volume
-
-
-v1.3.1 - Bug fixes on behavior on audio source changing action
-    Bug Fixes:
-        - Fixed where if you have 2 same action in button editing when u select either Output/Input it'll reset the previous action.
-
-
-v1.3.0 - Allow string state use as volume and get current master volume as state
-    New:
-        - Added ability to get current master volume as a state.
-
-    Bug Fixes:
-        - Fixed that you cannot insert a state to be used as volume in actions
-
-
-v1.2.0 - Individual app audio routing & added device stateback.
-    New:
-        - Individual app routing meaning you can send app's audio source to any audio devices you wish.
-        - Added Ability to show current input/output Default and Communcation device state back.
-        - Updated the python sdk to V1.7.9
-    Bug Fixes:
-        - Memory Leak is fixed.
-
-
-v1.1.1 - CPU & RAM leak (6/5/2022)
-    Fixed:
-        - CPU and RAM Leak
-        "In order to fix this leak I had to remove show current default in/output device states.
-        will find other way to solve this. as for now it's completely disabled.
-
-
-v1.1.0 - Device Output & bug fixes (5/29/2022)
-    Whats added?
-        - Action
-            - Volume Mixer: Change Default Audio Devices
-        - State
-            - Audio Device: Get default Output devices
-            - Audio Device: Get default Output commication devices
-            - Audio Device: Get default input device
-            - Audio Device: Get default input commucation device
-    Bug fixes:
-        - Plugin does not delete expired application state
-    
-    Known error:
-        to my experice plugin randomly crashes (currently debugging this)
-
-
-v1.0.0 - InitialRelease (5/26/2022)
-   Features:
-      - Mute/Unmute/Toggle per application
-      - Increase/Decrease/Set Master vol, current focused app or app you choose.
-      - Using slider to control each application's volume
+v1.0.0 - Initial Release (2022-05-26)
+    Features:
+        - Mute/Unmute/Toggle per application
+        - Increase/Decrease/Set Master vol, current focused app or selected app
 
 ```
 
